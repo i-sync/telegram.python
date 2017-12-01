@@ -6,11 +6,11 @@ import sys
 import telethon
 import json
 from config import Config
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 session_name = 'telegram'
 
-client = telethon.TelegramClient(session = session_name, api_id = Config["api_id"], api_hash = Config["api_hash"], update_workers = 4)
+client = telethon.TelegramClient(session = session_name, api_id = Config["api_id"], api_hash = Config["api_hash"], update_workers = 20)
 
 def init():
     client.connect()
@@ -38,6 +38,9 @@ def get_possible_names(document):
             ))
     return possible_names
 
+def process_handler(current, total):
+    print("downloading complete : {} %".format(current/total * 100))
+
 def downloadMediaFile(message):
     #print(str(message))
     file_path = 'downloads/'
@@ -47,7 +50,7 @@ def downloadMediaFile(message):
             date=message.date, possible_names=possible_names
         )
     print("Start download file: {}.".format(file_name))
-    client.download_media(message, '/downloads/')
+    client.download_media(message, file_path, process_handler)
     client.send_message(Config['user_id'], 'Download {} completed.'.format(file_name))
     print('Download {} completed.'.format(file_name))
 
@@ -112,16 +115,11 @@ def update_handler(update):
         pts_count=1
     )
     '''
-    if isinstance(update, telethon.tl.types.UpdateNewMessage) and update.message.media is not None:
-        #print(json.dumps(update))
-        print(update.message.from_id == Config["user_id"])
-        print("-------------")
-        #print(str(update.message.media))
+    if isinstance(update, telethon.tl.types.UpdateNewMessage) and update.message.from_id == Config["user_id"] and update.message.media is not None:
         downloadMediaFile(update.message)
-        print('complete...')
 
 def signal_handler(signal, frame):
-    print("Ctrl + C was pressed , stop...")
+    print("Ctrl + C was pressed , stop ...")
     sys.exit(0)
 
 if __name__ == "__main__":
