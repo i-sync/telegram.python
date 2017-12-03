@@ -3,26 +3,50 @@ import os.path
 import logging
 import signal
 import sys
+from config import Config
+#logging.basicConfig(filename='app.log', level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 import telethon
 import json
-from config import Config
-logging.basicConfig(level=logging.INFO)
+import threading
+import time
 
 session_name = 'telegram'
-
+me = None
 client = telethon.TelegramClient(session = session_name, api_id = Config["api_id"], api_hash = Config["api_hash"], update_workers = 20)
 
+lock_filename = threading.Lock()
+completed_filename = 'completed.txt'
+completed_filename_list = []
+def loading_downloaded_filename():
+    global completed_filename_list
+    if not os.path.exists(completed_filename):
+        return None
+    with open(completed_filename) as f:
+        for name in f:
+            completed_filename_list.append(name.strip('\n'))
+def write_downloaded_filename(name):
+    if not os.path.exists(completed_filename):
+        with open(completed_filename, 'w') as f:
+            pass
+    with lock_filename:
+        with open(completed_filename, 'w+') as f:
+            f.write('{}\n'.format(name))
+
 def init():
+    global me
+    loading_downloaded_filename()
     client.connect()
 
-    if not os.path.exists('{}.session'.format(session_name)):
+    me = client.get_me()
+    if me is None:
         client.sign_in(phone = Config["phone"])
         code = input("please input your code: ")
         me = client.sign_in(code = code)
-        print(me)
+        logging.info(me)
     else:
-        me = client.get_me()
-        print(me)
+        #me = client.get_me()
+        logging.info(me)
 
     client.add_update_handler(update_handler)
 
@@ -39,20 +63,30 @@ def get_possible_names(document):
     return possible_names
 
 def process_handler(current, total):
-    print("downloading complete : {} %".format(current/total * 100))
+    logging.info("downloading complete : {} %".format(current/total * 100))
 
 def downloadMediaFile(message):
-    #print(str(message))
-    file_path = 'downloads/'
+    #logging.info(str(message))
+    file_path = '/data/downloads/'
     possible_names = get_possible_names(message.media.document)
     file_name = telethon.TelegramClient._get_proper_filename(
             file_path, 'document', telethon.utils.get_extension(message.media),
             date=message.date, possible_names=possible_names
         )
-    print("Start download file: {}.".format(file_name))
-    client.download_media(message, file_path, process_handler)
+
+    #check file is if downloaded
+    if file_name in completed_filename_list:
+        logging.info("{}, has downloaded ...".format(file_name))
+        return None
+    else:
+        completed_filename_list.append(file_name)
+        write_downloaded_filename(file_name)
+    
+    logging.info("Start download file: {}.".format(file_name))
+    #client.download_media(message, file_path, process_handler)
+    client.download_media(message, file_path)
     client.send_message(Config['user_id'], 'Download {} completed.'.format(file_name))
-    print('Download {} completed.'.format(file_name))
+    logging.info('Download {} completed.'.format(file_name))
 
 def update_handler(update):
     '''
@@ -115,11 +149,12 @@ def update_handler(update):
         pts_count=1
     )
     '''
+    logging.info(str(update))
     if isinstance(update, telethon.tl.types.UpdateNewMessage) and update.message.from_id == Config["user_id"] and update.message.media is not None:
         downloadMediaFile(update.message)
 
 def signal_handler(signal, frame):
-    print("Ctrl + C was pressed , stop ...")
+    logging.info("Ctrl + C was pressed , stop ...")
     sys.exit(0)
 
 if __name__ == "__main__":
@@ -127,5 +162,17 @@ if __name__ == "__main__":
 
     #init
     init()
-
-    signal.pause()
+    '''
+    logging.info(me.id)
+    while True:
+        count, messages, _ = client.get_message_history(me.id, limit= 10)
+        logging.info('Get history total count: {}, message count: {}'.format(count, len(messages)))
+        if count:
+            while len(messages) > 0:
+                m = messages.pop()
+                logging.info(str(m))
+                if m.from_id == Config["user_id"] and m.media is not None:
+                    downloadMediaFile(m)
+                    time.sleep(10)
+        time.sleep(1)
+    '''
